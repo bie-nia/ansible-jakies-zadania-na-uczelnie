@@ -1,0 +1,43 @@
+---
+- name: Playbook do sprawdzenia zajętości dysków
+  hosts: serweryweb
+  gather_facts: yes
+  vars:
+    gotify_host: "http://10.10.10.164:6789"
+    gotify_token: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          37333338303663333831633565386261663765643231376166386434656336393565336531396439
+          6564643033636338336666656134353564343133396331660a316332616335343362666234343063
+          35626565643933326539333762323332316664663936303334303239666465626463323037386366
+          3564313961336634660a333735656565653732326338306461626537343739613938376462663563
+          3239
+
+  tasks:
+    - name: Sprawdzenie zajętości dysków
+      command: df -h --output=pcent,target
+      register: disk_usage
+
+    - name: Analiza użycia dysków
+      set_fact:
+        partitions: "{{ disk_usage.stdout_lines[1:] | map('split') | map('last') | list }}"
+        usage: "{{ disk_usage.stdout_lines[1:] | map('split') | map('first') | list }}"
+
+    - name: Sprawdź partycje z wykorzystaniem ponad 80%
+      set_fact:
+        high_usage_partitions: "{{ partitions | zip(usage) | selectattr('1', 'match', '^(8\\d|9\\d|100)%$') | list }}"
+
+    - name: Sprawdzanie, czy są partycje z wykorzystaniem ponad 80%
+      debug:
+        msg: "Następujące partycje przekroczyły próg 80% zajętości dysku: {{ high_usage_partitions }}"
+      when: high_usage_partitions | length > 0
+
+    - name: Wysłanie powiadomienia do Gotify w przypadku wysokiego zużycia dysku
+      uri:
+        url: "{{ gotify_host }}/message?token={{ gotify_token }}"
+        method: POST
+        body_format: json
+        body:
+          title: "Wysokie zużycie dysku na partycji serwera {{ ansible_hostname }}"
+          message: "Uwaga! Następujące partycje na serwerze {{ ansible_hostname }} są zapełnione w ponad 80%: {{ high_usage_partitions | join(', ') }}."
+      when: high_usage_partitions | length > 0
+      no_log: true
