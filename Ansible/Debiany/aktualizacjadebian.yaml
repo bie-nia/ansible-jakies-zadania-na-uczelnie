@@ -1,6 +1,17 @@
 - name: Playbook do aktualizacji Debian
   hosts: serweryweb
   gather_facts: yes
+  vars:
+    slack_webhook: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          64653737373032313938656363663963643437333464663730316261303233656535663634356334
+          3630396136363930656533633938343562616161643465620a346435383536646263613730333234
+          63306165353731626665386230366661633335373636306431663539363937373833393037666563
+          3733353966646538350a333266623463373633613033363334343738366134626461646166626331
+          38356630316130306330653932346233323666303566636139383562386464333133363632353362
+          61376531613736626431373939393466656137303464333135376431383237323930346663373037
+          30323064656239656362326137366435613935336437333235353364353262613238383664373163
+          36313032643164626466
 
   tasks:
     - name: Zaktualizuj wszystkie pakiety do najnowszej wersji - "apt-get upgrade"
@@ -14,3 +25,17 @@
         autoremove: true
         dpkg_options: 'force-confold,force-confdef'
       register: upgradeapt
+
+    - name: Powiadomienie na Slacku
+      community.general.slack:
+        token: "{{ slack_webhook }}"
+        username: 'Ansible na {{ inventory_hostname }}'
+        msg: |
+          ### StatusAktualizacjiOprogramowania ###
+          ----------------------------------------
+          `Server`: {{ ansible_hostname }}
+          `Status`: {{ upgradeapt.stdout_lines }}
+          ----------------------------------------
+        channel: "#semaphoreui"
+        color: good
+      no_log: true
