@@ -1,0 +1,71 @@
+---
+- name: Kopia zapasowa AdGuard Home
+  hosts: AGH_Bienia
+  become: true
+
+  vars:
+    backup_src: /adguardhome/AdGuardHome
+    backup_dest_local: /tmp/adguard_backup.tar.gz
+    backup_dest_remote: /root/ansible/backups/adguard_backup_{{ ansible_date_time.date }}.tar.gz
+
+  tasks:
+
+    - name: Zebranie faktów
+      setup:
+        filter: ansible_date_time
+
+    - name: Utworzenie archiwum danych AdGuard Home
+      archive:
+        path: "{{ backup_src }}"
+        dest: "{{ backup_dest_local }}"
+        format: gz
+      register: backup_result
+      ignore_errors: true
+
+    - name: Utworzenie katalogu backupów na ansible1
+      file:
+        path: /root/ansible/backups
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+
+    - name: Pobranie backupu na ansible1
+      fetch:
+        src: "{{ backup_dest_local }}"
+        dest: "{{ backup_dest_remote }}"
+        flat: true
+      register: fetch_result
+      ignore_errors: true
+
+    - name: Usunięcie tymczasowego archiwum z AGH_Bienia
+      file:
+        path: "{{ backup_dest_local }}"
+        state: absent
+
+    - name: Powiadomienie Gotify - sukces
+      uri:
+        url: "http://10.10.10.164:6789/message"
+        method: POST
+        headers:
+          X-Gotify-Key: "A1s5btJ3lU9DzL5"
+        body_format: json
+        body:
+          title: "Backup AGH_Bienia - OK"
+          message: "Kopia zapasowa AdGuard Home zakończona pomyślnie"
+          priority: 4
+      when: not backup_result.failed and not fetch_result.failed
+      delegate_to: localhost
+
+    - name: Powiadomienie Gotify - błąd
+      uri:
+        url: "http://10.10.10.164:6789/message"
+        method: POST
+        headers:
+          X-Gotify-Key: "A1s5btJ3lU9DzL5"
+        body_format: json
+        body:
+          title: "Błąd backupu AGH_Bienia"
+          message: "Kopia zapasowa AdGuard Home nie powiodła się"
+          priority: 8
+      when: backup_result.failed or fetch_result.failed
+      delegate_to: localhost

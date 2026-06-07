@@ -1,0 +1,127 @@
+---
+- name: Instalacja i konfiguracja AdGuard Home
+  hosts: AGH_Bienia
+  become: true
+
+  vars:
+    vg_name: adg_vg
+    lv_name: adg_lv
+    mount_point: /adguardhome
+    adguard_url: "https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"
+
+  tasks:
+
+    # === LVM ===
+    - name: Instalacja lvm2
+      apt:
+        name: lvm2
+        state: present
+        update_cache: true
+
+    - name: Utworzenie PV na vdb
+      lvg:
+        vg: "{{ vg_name }}"
+        pvs: /dev/vdb,/dev/vdc
+        state: present
+
+    - name: Utworzenie LV RAID1
+      lvol:
+        vg: "{{ vg_name }}"
+        lv: "{{ lv_name }}"
+        size: 100%FREE
+        opts: "--type raid1 --mirrors 1 --nosync"
+        state: present
+
+    - name: Formatowanie LV jako ext4
+      filesystem:
+        fstype: ext4
+        dev: "/dev/{{ vg_name }}/{{ lv_name }}"
+
+    - name: Utworzenie katalogu montowania
+      file:
+        path: "{{ mount_point }}"
+        state: directory
+        mode: '0755'
+
+    - name: Montowanie LV
+      mount:
+        path: "{{ mount_point }}"
+        src: "/dev/{{ vg_name }}/{{ lv_name }}"
+        fstype: ext4
+        state: mounted
+
+    # === AdGuard Home ===
+    - name: Instalacja wymaganych pakietów
+      apt:
+        name:
+          - curl
+          - tar
+        state: present
+
+    - name: Pobranie AdGuard Home
+      get_url:
+        url: "{{ adguard_url }}"
+        dest: /tmp/AdGuardHome.tar.gz
+        mode: '0644'
+
+    - name: Rozpakowanie AdGuard Home
+      unarchive:
+        src: /tmp/AdGuardHome.tar.gz
+        dest: "{{ mount_point }}"
+        remote_src: true
+        creates: "{{ mount_point }}/AdGuardHome/AdGuardHome"
+
+    - name: Instalacja AdGuard Home jako usługa systemowa
+      command: "{{ mount_point }}/AdGuardHome/AdGuardHome -s install"
+      args:
+        creates: /etc/systemd/system/AdGuardHome.service
+
+    - name: Uruchomienie i włączenie AdGuard Home
+      systemd:
+        name: AdGuardHome
+        state: started
+        enabled: true
+
+    # === UFW ===
+    - name: Instalacja UFW
+      apt:
+        name: ufw
+        state: present
+
+    - name: Domyślna polityka - blokuj przychodzące
+      ufw:
+        default: deny
+        direction: incoming
+
+    - name: Domyślna polityka - zezwalaj wychodzące
+      ufw:
+        default: allow
+        direction: outgoing
+
+    - name: Zezwól SSH
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Zezwól AdGuard Home - panel web (3000 setup / 80 po konfiguracji)
+      ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+
+    - name: Zezwól AdGuard Home - DNS TCP
+      ufw:
+        rule: allow
+        port: '53'
+        proto: tcp
+
+    - name: Zezwól AdGuard Home - DNS UDP
+      ufw:
+        rule: allow
+        port: '53'
+        proto: udp
+
+    - name: Włączenie UFW
+      ufw:
+        state: enabled

@@ -1,0 +1,46 @@
+---
+- name: Aktualizacja systemu operacyjnego
+  hosts: AGH_Bienia
+  become: true
+
+  tasks:
+    - name: Aktualizacja listy pakietów
+      apt:
+        update_cache: true
+      register: apt_update
+      ignore_errors: true
+
+    - name: Aktualizacja wszystkich pakietów
+      apt:
+        upgrade: dist
+        autoremove: true
+      register: apt_upgrade
+      ignore_errors: true
+
+    - name: Powiadomienie Gotify - sukces
+      uri:
+        url: "http://10.10.10.164:6789/message"
+        method: POST
+        headers:
+          X-Gotify-Key: "A1s5btJ3lU9DzL5"
+        body_format: json
+        body:
+          title: "Aktualizacja AGH_Bienia - OK"
+          message: "Aktualizacja systemu zakończona pomyślnie"
+          priority: 4
+      when: not apt_update.failed and not apt_upgrade.failed
+      delegate_to: localhost
+
+    - name: Powiadomienie Gotify - błąd
+      uri:
+        url: "http://10.10.10.164:6789/message"
+        method: POST
+        headers:
+          X-Gotify-Key: "A1s5btJ3lU9DzL5"
+        body_format: json
+        body:
+          title: "Błąd aktualizacji AGH_Bienia"
+          message: "Aktualizacja systemu nie powiodła się na AGH_Bienia"
+          priority: 8
+      when: apt_update.failed or apt_upgrade.failed
+      delegate_to: localhost
